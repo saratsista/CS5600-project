@@ -4,6 +4,7 @@
 #include <random.h>
 #include <stdio.h>
 #include <string.h>
+#include <list.h>
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
@@ -11,6 +12,7 @@
 #include "threads/switch.h"
 #include "threads/synch.h"
 #include "threads/vaddr.h"
+#include "devices/timer.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -23,6 +25,12 @@
 /* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
 static struct list ready_list;
+
+/* List of processes in THREAD_SLEEPING state. */
+static struct list sleeping_list;
+
+/* Default value for wake time when a thread is initialized */
+#define DEFAULT_WAKETIME 0LL
 
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
@@ -70,6 +78,7 @@ static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
+list_less_func sleep_list_less_func;
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -91,6 +100,7 @@ thread_init (void)
 
   lock_init (&tid_lock);
   list_init (&ready_list);
+  list_init (&sleeping_list);
   list_init (&all_list);
 
   /* Set up a thread structure for the running thread. */
@@ -146,6 +156,15 @@ thread_print_stats (void)
   printf ("Thread: %lld idle ticks, %lld kernel ticks, %lld user ticks\n",
           idle_ticks, kernel_ticks, user_ticks);
 }
+
+/* Prints thread info  
+void
+thread_print_info(struct thread *t)
+{
+ printf ("tid: %d, name: %s, priority: %d, status: %d, magic: %d\n", t->tid, t->name, 
+	t->priority , t->status, t->magic);
+}
+*/
 
 /* Creates a new kernel thread named NAME with the given initial
    PRIORITY, which executes FUNCTION passing AUX as the argument,
@@ -314,6 +333,35 @@ thread_yield (void)
   intr_set_level (old_level);
 }
 
+/* Comparison function to sort sleeping_list */
+bool
+sleep_list_less_func (const struct list_elem *a, const struct list_elem *b, void *aux)
+{
+  struct thread *t1 = list_entry (a, struct thread, slpelem);
+  struct thread *t2 = list_entry (b, struct thread, slpelem);
+  if (t1->wake_time < t2->wake_time) 
+    return true;
+  return false;
+}
+
+/* Changes the state of current thread to SLEEPING. 
+   Pushes the thread onto a sleeping list and calls schedule() */
+void
+thread_sleep (int64_t ticks) 
+{
+  struct thread *cur = thread_current ();
+  enum intr_level old_level;
+ 
+  old_level = intr_disable ();
+  if (cur != idle_thread) {
+    list_insert_ordered(&sleeping_list, &cur->slpelem, &sleep_list_less_func, NULL);
+    cur->status = THREAD_SLEEPING;
+    cur->wake_time = timer_ticks () + ticks;
+    schedule ();
+  }
+  intr_set_level (old_level);  
+}
+
 /* Invoke function 'func' on all threads, passing along 'aux'.
    This function must be called with interrupts off. */
 void
@@ -462,6 +510,7 @@ init_thread (struct thread *t, const char *name, int priority)
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->wake_time = DEFAULT_WAKETIME; 
   t->magic = THREAD_MAGIC;
 
   old_level = intr_disable ();
@@ -556,13 +605,30 @@ schedule (void)
   struct thread *next = next_thread_to_run ();
   struct thread *prev = NULL;
 
+  struct list_elem *e = list_begin(&sleeping_list);
+
   ASSERT (intr_get_level () == INTR_OFF);
   ASSERT (cur->status != THREAD_RUNNING);
   ASSERT (is_thread (next));
 
+  while (e != list_end(&sleeping_list)) {
+    struct thread *t = list_entry(e, struct thread, slpelem);
+    struct list_elem *temp;
+
+    if (timer_ticks () >= t->wake_time) {
+      list_push_back(&ready_list, &t->elem);
+      t->status = THREAD_READY;
+      temp = e;
+      e = list_next(e);
+      list_remove(temp);      
+    }
+    else e = list_next(e);
+  }
+
   if (cur != next)
     prev = switch_threads (cur, next);
   thread_schedule_tail (prev);
+
 }
 
 /* Returns a tid to use for a new thread. */
