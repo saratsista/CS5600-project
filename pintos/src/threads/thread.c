@@ -79,6 +79,7 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 list_less_func sleep_list_less_func;
+list_less_func ready_list_less_func;
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -242,13 +243,17 @@ void
 thread_unblock (struct thread *t) 
 {
   enum intr_level old_level;
+  struct thread *cur = thread_current ();
 
   ASSERT (is_thread (t));
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+  list_insert_ordered (&ready_list, &t->elem, &ready_list_less_func, NULL);
   t->status = THREAD_READY;
+  if (cur != idle_thread && t->priority > cur->priority) {
+    thread_yield ();
+  }
   intr_set_level (old_level);
 }
 
@@ -318,42 +323,13 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_push_back (&ready_list, &cur->elem);
+    list_insert_ordered (&ready_list, &cur->elem, &ready_list_less_func, NULL);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
 }
 
-/* Comparison function to sort sleeping_list */
-bool
-sleep_list_less_func (const struct list_elem *a, const struct list_elem *b, void *aux)
-{
-  struct thread *t1 = list_entry (a, struct thread, slpelem);
-  struct thread *t2 = list_entry (b, struct thread, slpelem);
 
-  if (t1->wake_time < t2->wake_time) { 
-    return true;
-  }
-  return false;
-}
-
-/* Changes the state of current thread to SLEEPING. 
-   Pushes the thread onto a sleeping list and calls schedule() */
-void
-thread_sleep (int64_t ticks) 
-{
-  struct thread *cur = thread_current ();
-  enum intr_level old_level;
- 
-  old_level = intr_disable ();
-  if (cur != idle_thread) {
-    list_insert_ordered (&sleeping_list, &cur->slpelem, &sleep_list_less_func, NULL);
-    cur->status = THREAD_SLEEPING;
-    cur->wake_time = timer_ticks () + ticks;
-    schedule ();
-  }
-  intr_set_level (old_level);  
-}
 
 /* Invoke function 'func' on all threads, passing along 'aux'.
    This function must be called with interrupts off. */
@@ -376,7 +352,13 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  thread_current ()->priority = new_priority;
+  struct thread *cur = thread_current ();
+  int old_priority = cur->priority;
+
+  cur->priority = new_priority;
+  if (cur->priority < old_priority) {
+     thread_yield ();
+  }
 }
 
 /* Returns the current thread's priority. */
@@ -535,7 +517,7 @@ next_thread_to_run (void)
   if (list_empty (&ready_list))
     return idle_thread;
   else
-    return list_entry (list_pop_front (&ready_list), struct thread, elem);
+    return list_entry (list_pop_back (&ready_list), struct thread, elem);
 }
 
 /* Completes a thread switch by activating the new thread's page
@@ -609,18 +591,22 @@ schedule (void)
     struct list_elem *temp;
 
     if (timer_ticks () >= t->wake_time) {
-      list_push_back (&ready_list, &t->elem);
+      list_insert_ordered (&ready_list, &t->elem, &ready_list_less_func, NULL);
       t->status = THREAD_READY;
       temp = e;
       e = list_next(e);
-      list_remove (temp);      
+      list_remove (temp);
+//     if (t->priority > next->priority)
+//	next = next_thread_to_run (); 
     }
     else e = list_next (e);
+
   }
 
-  if (cur != next)
+  if (cur != next) 
     prev = switch_threads (cur, next);
   thread_schedule_tail (prev);
+
 }
 
 /* Returns a tid to use for a new thread. */
@@ -636,7 +622,55 @@ allocate_tid (void)
 
   return tid;
 }
-
+
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);
+
+/******* Added Functions *****/
+
+/* Changes the state of current thread to SLEEPING. 
+   Pushes the thread onto a sleeping list and calls schedule() */
+void
+thread_sleep (int64_t ticks) 
+{
+  struct thread *cur = thread_current ();
+  enum intr_level old_level;
+ 
+  old_level = intr_disable ();
+  if (cur != idle_thread) {
+    list_insert_ordered (&sleeping_list, &cur->slpelem, &sleep_list_less_func, NULL);
+    cur->status = THREAD_SLEEPING;
+    cur->wake_time = timer_ticks () + ticks;
+    schedule ();
+  }
+  intr_set_level (old_level);  
+}
+
+/* Comparison function to sort sleeping_list */
+bool
+sleep_list_less_func (const struct list_elem *a, const struct list_elem *b, void *aux UNUSED)
+{
+  struct thread *t1 = list_entry (a, struct thread, slpelem);
+  struct thread *t2 = list_entry (b, struct thread, slpelem);
+
+  if (t1->wake_time < t2->wake_time) { 
+    return true;
+  }
+  return false;
+}
+
+/* Comparison function for ordering ready_list based on thread priorities */
+bool
+ready_list_less_func (const struct list_elem *a, const struct list_elem *b, 
+		      void *aux_data UNUSED)
+{
+  struct thread *ta = list_entry (a, struct thread, elem);
+  struct thread *tb = list_entry (b, struct thread, elem);
+
+  if (ta->priority <= tb->priority) {
+    return true;
+  }
+  return false;
+} 
+
