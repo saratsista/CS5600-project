@@ -212,6 +212,14 @@ thread_create (const char *name, int priority,
   /* Add to run queue. */
   thread_unblock (t);
 
+  /* Yield if current thread has lower priority than t */
+  enum intr_level old_level = intr_disable (); 
+  struct thread *cur = thread_current ();
+  if (cur != idle_thread && priority > cur->priority) {
+    thread_yield ();
+  }
+  intr_set_level (old_level);
+
   return tid;
 }
 
@@ -243,7 +251,6 @@ void
 thread_unblock (struct thread *t) 
 {
   enum intr_level old_level;
-  struct thread *cur = thread_current ();
 
   ASSERT (is_thread (t));
 
@@ -251,9 +258,6 @@ thread_unblock (struct thread *t)
   ASSERT (t->status == THREAD_BLOCKED);
   list_insert_ordered (&ready_list, &t->elem, &ready_list_less_func, NULL);
   t->status = THREAD_READY;
-  if (cur != idle_thread && t->priority > cur->priority) {
-    thread_yield ();
-  }
   intr_set_level (old_level);
 }
 
@@ -352,13 +356,19 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  struct thread *cur = thread_current ();
-  int old_priority = cur->priority;
+  struct thread *cur;
+  enum intr_level old_level;
+  int old_priority;
 
+  old_level = intr_disable ();
+  cur = thread_current ();
+  old_priority = cur->priority;
   cur->priority = new_priority;
-  if (cur->priority < old_priority) {
-     thread_yield ();
+  if (cur->priority < old_priority)
+  { 
+      thread_yield ();   
   }
+  intr_set_level (old_level);
 }
 
 /* Returns the current thread's priority. */
@@ -594,19 +604,22 @@ schedule (void)
       list_insert_ordered (&ready_list, &t->elem, &ready_list_less_func, NULL);
       t->status = THREAD_READY;
       temp = e;
-      e = list_next(e);
+      e = list_next (e);
       list_remove (temp);
-//     if (t->priority > next->priority)
-//	next = next_thread_to_run (); 
+      /* If t has higher priority than next thread scheduled, 
+         then assign t to next */
+      if (t->priority > next->priority) {
+        t = next;
+	next = next_thread_to_run ();
+        list_insert_ordered (&ready_list, &t->elem, &ready_list_less_func, NULL);
+      }
     }
     else e = list_next (e);
-
   }
 
   if (cur != next) 
     prev = switch_threads (cur, next);
   thread_schedule_tail (prev);
-
 }
 
 /* Returns a tid to use for a new thread. */
@@ -673,4 +686,5 @@ ready_list_less_func (const struct list_elem *a, const struct list_elem *b,
   }
   return false;
 } 
+
 
