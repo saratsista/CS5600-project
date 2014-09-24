@@ -36,6 +36,7 @@
 list_less_func priority_compare_func;
 list_less_func condvar_list_less_func;
 void set_priority_helper (int, struct thread *, bool);
+bool thread_waiting_for_lock (struct lock *);
 
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
@@ -210,6 +211,7 @@ lock_acquire (struct lock *lock)
   ASSERT (!lock_held_by_current_thread (lock));
 
   if (lock->holder != NULL) {
+    thread_current ()->wait_for_lock = lock;
     list_insert_ordered (&lock->holder->suspended_for_lock,
 			 &thread_current ()->blkelem,
 			 &priority_compare_func, NULL);
@@ -217,7 +219,7 @@ lock_acquire (struct lock *lock)
   }
 
   sema_down (&lock->semaphore);
-  thread_current ()->lock_held = lock;
+  thread_current ()->wait_for_lock = NULL;
   lock->holder = thread_current ();
 }
 
@@ -255,14 +257,14 @@ lock_release (struct lock *lock)
   struct thread *cur = thread_current ();
   /* If there are threads waiting for this lock, revert to 
      original priority before releasing the lock
-  */
-  if (!list_empty (&cur->suspended_for_lock))
+ */ 
+  if (thread_waiting_for_lock (lock))
   {	
     set_priority_helper (cur->original_priority, NULL, true);
   }
+  
   lock->holder = NULL;
   sema_up (&lock->semaphore);
-  thread_current ()->lock_held = NULL;
 }
 
 /* Returns true if the current thread holds LOCK, false
@@ -408,6 +410,30 @@ condvar_list_less_func (const struct list_elem *a, const struct list_elem *b,
   if (ta->priority < tb->priority) {
     return true;
   }
+  return false;
+}
+
+/* Function to check if there are threads waiting for lock 
+   that this thread is about to release */
+bool
+thread_waiting_for_lock (struct lock *lock)
+{
+  struct thread *cur = thread_current ();
+  struct list_elem *e;
+
+  if (list_empty (&cur->suspended_for_lock))
+   {
+     return false;
+   }
+  
+  for (e = list_begin (&cur->suspended_for_lock); 
+       e != list_end (&cur->suspended_for_lock); e = list_next (e))
+    {
+      struct thread *t = list_entry (list_back (&cur->suspended_for_lock),
+				     struct thread, blkelem);
+      if (t->wait_for_lock == lock)
+        return true; 
+    }
   return false;
 }
 

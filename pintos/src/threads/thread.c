@@ -491,7 +491,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->original_priority = priority;
   t->priority = priority;
   t->highest_received_priority = NO_PRIORITY_RECEIVED;
-  t->lock_held = NULL;
+  t->wait_for_lock = NULL;
   list_init (&t->suspended_for_lock);
   t->wake_time = DEFAULT_WAKETIME; 
   t->magic = THREAD_MAGIC;

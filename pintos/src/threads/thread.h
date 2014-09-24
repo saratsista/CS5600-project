@@ -92,7 +92,7 @@ struct thread
     int priority;              		/* current priority */
     int highest_received_priority;	/* Highest priority received before donation release */
     #define NO_PRIORITY_RECEIVED -1
-    struct lock *lock_held;		/* Lock held by this thread */
+    struct lock *wait_for_lock;		/* Lock this thread is waiting for*/
     struct list suspended_for_lock;	/* Threads blocked for lock_held */
     struct list_elem blkelem;
     int64_t wake_time;			
@@ -142,6 +142,7 @@ void thread_foreach (thread_action_func *, void *);
 
 int thread_get_priority (void);
 void thread_set_priority (int);
+void donate_priority (struct thread *);
 void set_priority_helper (int, struct thread *, bool);
 
 int thread_get_nice (void);
