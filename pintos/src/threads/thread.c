@@ -80,6 +80,7 @@ void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 list_less_func sleep_list_less_func;
 list_less_func ready_list_less_func;
+void donate_priority (struct thread *);
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -360,10 +361,24 @@ thread_set_priority (int new_priority)
   enum intr_level old_level;
   int old_priority;
 
+  if (thread_current ()->donation_received)
+  {
+    return;
+  }
+
   old_level = intr_disable ();
   cur = thread_current ();
   old_priority = cur->priority;
   cur->priority = new_priority;
+
+  if (! list_empty (&cur->suspended_for_lock))
+  {
+    struct thread *t = list_entry (list_pop_back (&cur->suspended_for_lock),
+			 		struct thread, blkelem);
+    thread_unblock (t);
+    if (t->priority > cur->priority)
+    	thread_yield ();
+  }
   if (cur->priority < old_priority)
   { 
       thread_yield ();   
@@ -494,7 +509,11 @@ init_thread (struct thread *t, const char *name, int priority)
   t->status = THREAD_BLOCKED;
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
+  t->original_priority = priority;
   t->priority = priority;
+  t->donation_received = false;
+  t->lock_held = NULL;
+  list_init (&t->suspended_for_lock);
   t->wake_time = DEFAULT_WAKETIME; 
   t->magic = THREAD_MAGIC;
 
@@ -601,7 +620,8 @@ schedule (void)
     struct list_elem *temp;
 
     if (timer_ticks () >= t->wake_time) {
-      list_insert_ordered (&ready_list, &t->elem, &ready_list_less_func, NULL);
+      list_insert_ordered (&ready_list, &t->elem, &ready_list_less_func,
+			   NULL);
       t->status = THREAD_READY;
       temp = e;
       e = list_next (e);
@@ -611,12 +631,13 @@ schedule (void)
       if (t->priority > next->priority) {
         t = next;
 	next = next_thread_to_run ();
-        list_insert_ordered (&ready_list, &t->elem, &ready_list_less_func, NULL);
+        list_insert_ordered (&ready_list, &t->elem, &ready_list_less_func,
+			     NULL);
       }
     }
     else e = list_next (e);
   }
-
+  
   if (cur != next) 
     prev = switch_threads (cur, next);
   thread_schedule_tail (prev);
@@ -686,5 +707,21 @@ ready_list_less_func (const struct list_elem *a, const struct list_elem *b,
   }
   return false;
 } 
+
+/* Donate priority of current thread to t
+*/
+void
+donate_priority (struct thread* t)
+ {
+  ASSERT (t != NULL );
+ 
+  enum intr_level old_level = intr_disable ();
+  t->donation_received = true;
+  t->priority = thread_current ()->priority;
+  list_sort (&ready_list, &ready_list_less_func, NULL);
+  thread_block (); 
+  intr_set_level (old_level);
+ }  
+
 
 
