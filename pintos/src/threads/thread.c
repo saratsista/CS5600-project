@@ -357,32 +357,11 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
-  struct thread *cur;
   enum intr_level old_level;
-  int old_priority;
-/*
-  if (thread_current ()->donation_received)
-  {
-    return;
-  }
-*/
-  old_level = intr_disable ();
-  cur = thread_current ();
-  old_priority = cur->priority;
-  cur->priority = new_priority;
 
-  if (! list_empty (&cur->suspended_for_lock))
-  {
-    struct thread *t = list_entry (list_pop_back (&cur->suspended_for_lock),
-			 		struct thread, blkelem);
-    thread_unblock (t);
-    if (t->priority > cur->priority)
-    	thread_yield ();
-  }
-  if (cur->priority < old_priority)
-  { 
-      thread_yield ();   
-  }
+/* Change the thread's priority to new priority */
+  old_level = intr_disable ();
+  set_priority_helper (new_priority, NULL, false);
   intr_set_level (old_level);
 }
 
@@ -511,7 +490,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->original_priority = priority;
   t->priority = priority;
-  t->donation_received = false;
+  t->highest_received_priority = NO_PRIORITY_RECEIVED;
   t->lock_held = NULL;
   list_init (&t->suspended_for_lock);
   t->wake_time = DEFAULT_WAKETIME; 
@@ -716,8 +695,7 @@ donate_priority (struct thread* t)
   ASSERT (t != NULL );
  
   enum intr_level old_level = intr_disable ();
-  t->donation_received = true;
-  t->priority = thread_current ()->priority;
+  set_priority_helper (thread_current ()->priority, t, true);
   list_sort (&ready_list, &ready_list_less_func, NULL);
   thread_block (); 
   intr_set_level (old_level);

@@ -35,6 +35,7 @@
 
 list_less_func priority_compare_func;
 list_less_func condvar_list_less_func;
+void set_priority_helper (int, struct thread *, bool);
 
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
@@ -256,14 +257,9 @@ lock_release (struct lock *lock)
      original priority before releasing the lock
   */
   if (!list_empty (&cur->suspended_for_lock))
-  {
-    thread_set_priority(cur->original_priority);
-/*
-    if (cur->original_priority == cur->priority)
-     {
-        cur->donation_received = false;
-     }
-*/  }
+  {	
+    set_priority_helper (cur->original_priority, NULL, true);
+  }
   lock->holder = NULL;
   sema_up (&lock->semaphore);
   thread_current ()->lock_held = NULL;
@@ -415,3 +411,60 @@ condvar_list_less_func (const struct list_elem *a, const struct list_elem *b,
   return false;
 }
 
+/* Helper function to set thread priority */
+void
+set_priority_helper (int new_priority, struct thread * thread_to_be_handled,	
+			bool donation)
+{
+  struct thread *tbh = thread_to_be_handled;
+  struct thread *cur = thread_current ();
+  enum intr_level old_level = intr_disable ();
+  int old_priority = cur->priority;
+
+  // when called from donate_priority & lock_release
+  if (donation == true)
+  {
+   if (tbh == NULL) {
+      cur->priority = new_priority;
+
+      // Reset the current thread priority to highest priority request received
+      if (cur->highest_received_priority > NO_PRIORITY_RECEIVED) {
+        cur->original_priority = cur->priority = cur->highest_received_priority;
+        cur->highest_received_priority = NO_PRIORITY_RECEIVED;
+      }
+
+     /* If we are releasing a lock, unblock the highest priority thread
+     waiting for the lock */
+     if (!list_empty (&cur->suspended_for_lock))
+     {
+      struct thread *t = list_entry (list_pop_back (&cur->suspended_for_lock),
+			 		struct thread, blkelem);
+      thread_unblock (t);
+      if (t->priority > cur->priority)
+    	thread_yield ();
+     }
+    }
+   // When called from donate_priority
+    else {
+      tbh->priority = new_priority;
+    } 
+  }
+  // called explicitly by current_thread
+  else {
+    // No donations present
+    if (cur->priority == cur->original_priority)
+      cur->priority = cur->original_priority = new_priority;
+    // Donation not released yet, cache the highest new_priority
+    else {
+      if (new_priority > cur->highest_received_priority)
+        cur->highest_received_priority = new_priority;  
+    }
+ }
+/* If the new priority is less than the thread's previous priority,
+       yield */
+  if (cur->priority < old_priority)
+  { 
+    thread_yield ();   
+  }
+  intr_set_level (old_level);
+}
