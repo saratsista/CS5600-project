@@ -255,15 +255,15 @@ lock_release (struct lock *lock)
   /* If there are threads waiting for this lock, revert to 
      original priority before releasing the lock
   */
-  if (!list_empty (&cur->suspended_for_lock)
-      && (cur->donation_received))
+  if (!list_empty (&cur->suspended_for_lock))
   {
     thread_set_priority(cur->original_priority);
+/*
     if (cur->original_priority == cur->priority)
      {
         cur->donation_received = false;
      }
-  }
+*/  }
   lock->holder = NULL;
   sema_up (&lock->semaphore);
   thread_current ()->lock_held = NULL;

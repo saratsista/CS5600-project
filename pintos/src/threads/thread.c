@@ -360,12 +360,12 @@ thread_set_priority (int new_priority)
   struct thread *cur;
   enum intr_level old_level;
   int old_priority;
-
+/*
   if (thread_current ()->donation_received)
   {
     return;
   }
-
+*/
   old_level = intr_disable ();
   cur = thread_current ();
   old_priority = cur->priority;
