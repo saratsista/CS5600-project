@@ -444,6 +444,7 @@ set_priority_helper (int new_priority, struct thread * thread_to_be_handled,
 {
   struct thread *tbh = thread_to_be_handled;
   struct thread *cur = thread_current ();
+  struct list_elem *e;
   enum intr_level old_level = intr_disable ();
   int old_priority = cur->priority;
 
@@ -461,14 +462,19 @@ set_priority_helper (int new_priority, struct thread * thread_to_be_handled,
 
      /* If we are releasing a lock, unblock the highest priority thread
      waiting for the lock */
-     if (!list_empty (&cur->suspended_for_lock))
-     {
-      struct thread *t = list_entry (list_pop_back (&cur->suspended_for_lock),
+     struct thread *t = list_entry (list_pop_back (&cur->suspended_for_lock),
 			 		struct thread, blkelem);
+     e = list_begin (&cur->suspended_for_lock);
+     while (!list_empty (&cur->suspended_for_lock))
+     {
+      list_insert_ordered (&t->suspended_for_lock,
+			   list_pop_front(&cur->suspended_for_lock),
+			   priority_compare_func, NULL);
+      e = list_next (e);
+     }
       thread_unblock (t);
       if (t->priority > cur->priority)
     	thread_yield ();
-     }
     }
    // When called from donate_priority
     else {
