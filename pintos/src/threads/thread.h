@@ -15,6 +15,8 @@ enum thread_status
     THREAD_DYING        /* About to be destroyed. */
   };
 
+#define NO_PRIORITY_RECEIVED -1
+
 /* Thread identifier type.
    You can redefine this to whatever type you like. */
 typedef int tid_t;
@@ -91,7 +93,6 @@ struct thread
     int original_priority;		/* Original priority given to this thread */
     int priority;              		/* current priority */
     int highest_received_priority;	/* Highest priority received before donation release */
-    #define NO_PRIORITY_RECEIVED -1
     struct lock *wait_for_lock;		/* Lock this thread is waiting for*/
     struct list suspended_for_lock;	/* Threads blocked for lock_held */
     struct list_elem blkelem;

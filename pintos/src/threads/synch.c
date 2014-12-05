@@ -444,7 +444,7 @@ set_priority_helper (int new_priority, struct thread * thread_to_be_handled,
 {
   struct thread *tbh = thread_to_be_handled;
   struct thread *cur = thread_current ();
-  struct list_elem *e;
+  struct elem *e;
   enum intr_level old_level = intr_disable ();
   int old_priority = cur->priority;
 
@@ -455,7 +455,8 @@ set_priority_helper (int new_priority, struct thread * thread_to_be_handled,
       cur->priority = new_priority;
 
       // Reset the current thread priority to highest priority request received
-      if (cur->highest_received_priority > NO_PRIORITY_RECEIVED) {
+      if (cur->highest_received_priority > NO_PRIORITY_RECEIVED)
+      {
         cur->original_priority = cur->priority = cur->highest_received_priority;
         cur->highest_received_priority = NO_PRIORITY_RECEIVED;
       }
